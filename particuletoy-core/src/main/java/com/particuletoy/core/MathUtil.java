@@ -11,4 +11,9 @@ public final class MathUtil {
         if (v < min) return min;
         return Math.min(v, max);
     }
+
+    public static float clamp(float v, float min, float max) {
+        if (v < min) return min;
+        return Math.min(v, max);
+    }
 }

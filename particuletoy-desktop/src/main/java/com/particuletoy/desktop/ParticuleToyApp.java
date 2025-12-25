@@ -1,6 +1,7 @@
 package com.particuletoy.desktop;
 
 import com.particuletoy.core.ElementType;
+import com.particuletoy.core.ThermoConstants;
 import com.particuletoy.core.World;
 import javafx.animation.AnimationTimer;
 import javafx.application.Application;
@@ -9,14 +10,26 @@ import javafx.geometry.Insets;
 import javafx.geometry.Point2D;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
-import javafx.scene.control.*;
+import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
+import javafx.scene.control.ChoiceBox;
+import javafx.scene.control.Label;
+import javafx.scene.control.RadioButton;
+import javafx.scene.control.Separator;
+import javafx.scene.control.Slider;
+import javafx.scene.control.ToggleButton;
+import javafx.scene.control.ToggleGroup;
 import javafx.scene.image.ImageView;
 import javafx.scene.image.PixelFormat;
 import javafx.scene.image.PixelWriter;
 import javafx.scene.image.WritableImage;
 import javafx.scene.input.MouseButton;
 import javafx.scene.input.MouseEvent;
-import javafx.scene.layout.*;
+import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
+import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 
 import java.util.Locale;
@@ -24,9 +37,10 @@ import java.util.Locale;
 /**
  * Desktop UI (JavaFX).
  *
- * MVP goals:
+ * Goals:
  * - Show the simulation as a scaled pixel canvas.
- * - Allow painting elements with a brush.
+ * - Allow painting materials and temperature.
+ * - Provide temperature controls and heatmap view.
  * - Basic controls: play/pause, step, clear, reset.
  */
 public final class ParticuleToyApp extends Application {
@@ -34,7 +48,7 @@ public final class ParticuleToyApp extends Application {
     // --- Simulation settings (MVP defaults) ---
     private static final int WORLD_W = 320;
     private static final int WORLD_H = 200;
-    private static final int VIEW_SCALE = 3;     // integer scale for crisp pixels
+    private static final int VIEW_SCALE = 3;
     private static final double TICK_DT = 1.0 / 60.0;
     private static final int MAX_STEPS_PER_FRAME = 6;
 
@@ -50,6 +64,9 @@ public final class ParticuleToyApp extends Application {
     private boolean paused = false;
     private ElementType selectedElement = ElementType.SAND;
     private int brushRadius = 6;
+    private PaintMode paintMode = PaintMode.MATERIAL;
+    private boolean showTemperature = false;
+    private float temperatureBrushC = 20.0f;
 
     // Stats
     private long lastFrameNs = 0L;
@@ -59,12 +76,18 @@ public final class ParticuleToyApp extends Application {
     private double lastFps = 0.0;
     private int lastSteps = 0;
 
+    private enum PaintMode {
+        MATERIAL,
+        TEMPERATURE
+    }
+
     @Override
     public void start(Stage stage) {
         // --- World init ---
         this.world = new World(WORLD_W, WORLD_H, 1337L);
         this.world.clear();
-        this.world.fillBorder(ElementType.WALL);
+        this.world.fillBorder(ElementType.BEDROCK);
+        this.temperatureBrushC = world.ambientTemperatureC();
 
         // --- Rendering init ---
         this.pixels = new int[WORLD_W * WORLD_H];
@@ -77,21 +100,79 @@ public final class ParticuleToyApp extends Application {
         this.imageView.setScaleX(VIEW_SCALE);
         this.imageView.setScaleY(VIEW_SCALE);
 
-        // A pane that centers the scaled image
         StackPane viewport = new StackPane(imageView);
         viewport.setAlignment(Pos.CENTER);
         viewport.setPadding(new Insets(10));
-        viewport.setStyle("-fx-background-color: #1e1e1e;");
+        viewport.setStyle("-fx-background-color: linear-gradient(to bottom, #0b0f17, #151b2a);");
 
         // --- Controls panel ---
+        String panelStyle = ""
+                + "-fx-background-color: linear-gradient(to bottom, #111827, #0b1220 45%, #111a2e);"
+                + "-fx-border-color: rgba(255,255,255,0.06);"
+                + "-fx-border-width: 0 0 0 1;";
+        String cardStyle = ""
+                + "-fx-background-color: rgba(17, 24, 39, 0.85);"
+                + "-fx-background-radius: 12;"
+                + "-fx-border-color: rgba(255,255,255,0.07);"
+                + "-fx-border-radius: 12;"
+                + "-fx-padding: 10;";
+        String headerBase = "-fx-font-family: 'Palatino Linotype'; -fx-font-size: 13px; -fx-font-weight: bold;";
+        String labelStyle = "-fx-font-family: 'Trebuchet MS'; -fx-text-fill: #d6d9e6;";
+        String minorLabelStyle = "-fx-font-family: 'Trebuchet MS'; -fx-text-fill: #aab3c7; -fx-font-size: 11px;";
+        String choiceStyle = ""
+                + "-fx-background-color: #0f172a;"
+                + "-fx-mark-color: #7dd3fc;"
+                + "-fx-text-fill: #e2e8f0;"
+                + "-fx-background-radius: 8;"
+                + "-fx-padding: 4 6;";
+        String sliderStyle = ""
+                + "-fx-control-inner-background: #0b1120;"
+                + "-fx-accent: #7dd3fc;"
+                + "-fx-focus-color: #34d399;"
+                + "-fx-faint-focus-color: transparent;";
+        String buttonBase = "-fx-background-radius: 8; -fx-text-fill: #0b0f19; -fx-font-weight: bold; -fx-padding: 8 10;";
+
         Label title = new Label("ParticuleToy");
-        title.setStyle("-fx-font-size: 18px; -fx-font-weight: bold;");
+        title.setStyle("-fx-font-family: 'Palatino Linotype'; -fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: #f8fafc;");
+
+        Region accentBar = new Region();
+        accentBar.setPrefHeight(6);
+        accentBar.setMaxWidth(Double.MAX_VALUE);
+        accentBar.setStyle("-fx-background-color: linear-gradient(to right, #ff7a59, #ffd15c, #2dd4bf, #60a5fa, #f472b6); -fx-background-radius: 10;");
+
+        // Paint mode controls
+        Label modeHeader = new Label("Paint mode");
+        modeHeader.setStyle(headerBase + " -fx-text-fill: #93c5fd;");
+
+        ToggleGroup modeGroup = new ToggleGroup();
+        RadioButton materialMode = new RadioButton("Material");
+        materialMode.setToggleGroup(modeGroup);
+        materialMode.setSelected(true);
+        materialMode.setStyle(labelStyle);
+        RadioButton temperatureMode = new RadioButton("Temperature");
+        temperatureMode.setToggleGroup(modeGroup);
+        temperatureMode.setStyle(labelStyle);
+
+        modeGroup.selectedToggleProperty().addListener((obs, oldT, newT) -> {
+            if (newT == temperatureMode) {
+                paintMode = PaintMode.TEMPERATURE;
+            } else {
+                paintMode = PaintMode.MATERIAL;
+            }
+        });
+
+        HBox modeRow = new HBox(12, materialMode, temperatureMode);
 
         ChoiceBox<ElementType> elementChoice = new ChoiceBox<>(FXCollections.observableArrayList(ElementType.palette()));
         elementChoice.setValue(selectedElement);
+        elementChoice.setStyle(choiceStyle);
+        elementChoice.setMaxWidth(Double.MAX_VALUE);
         elementChoice.getSelectionModel().selectedItemProperty().addListener((obs, oldV, newV) -> {
             if (newV != null) selectedElement = newV;
         });
+
+        Label elementHeader = new Label("Element");
+        elementHeader.setStyle(headerBase + " -fx-text-fill: #ffb347;");
 
         Slider brushSlider = new Slider(1, 25, brushRadius);
         brushSlider.setMajorTickUnit(6);
@@ -99,8 +180,11 @@ public final class ParticuleToyApp extends Application {
         brushSlider.setShowTickLabels(true);
         brushSlider.setShowTickMarks(true);
         brushSlider.setSnapToTicks(true);
+        brushSlider.setStyle(sliderStyle);
+        brushSlider.setMaxWidth(Double.MAX_VALUE);
 
         Label brushLabel = new Label();
+        brushLabel.setStyle(labelStyle);
         Runnable refreshBrushLabel = () -> brushLabel.setText("Brush radius: " + brushRadius + " px");
         refreshBrushLabel.run();
 
@@ -109,18 +193,65 @@ public final class ParticuleToyApp extends Application {
             refreshBrushLabel.run();
         });
 
+        Label brushHeader = new Label("Brush");
+        brushHeader.setStyle(headerBase + " -fx-text-fill: #5eead4;");
+
+        Label tempHeader = new Label("Temperature");
+        tempHeader.setStyle(headerBase + " -fx-text-fill: #fca5a5;");
+
+        Slider tempBrushSlider = new Slider(ThermoConstants.MIN_TEMP_C, ThermoConstants.MAX_TEMP_C, temperatureBrushC);
+        tempBrushSlider.setShowTickLabels(true);
+        tempBrushSlider.setShowTickMarks(true);
+        tempBrushSlider.setMajorTickUnit(2000);
+        tempBrushSlider.setMinorTickCount(9);
+        tempBrushSlider.setStyle(sliderStyle);
+        tempBrushSlider.setMaxWidth(Double.MAX_VALUE);
+
+        Label tempBrushLabel = new Label();
+        tempBrushLabel.setStyle(labelStyle);
+        Runnable refreshTempBrushLabel = () -> tempBrushLabel.setText(String.format(Locale.US, "Temp brush: %.0f C", temperatureBrushC));
+        refreshTempBrushLabel.run();
+
+        tempBrushSlider.valueProperty().addListener((obs, oldV, newV) -> {
+            temperatureBrushC = newV.floatValue();
+            refreshTempBrushLabel.run();
+        });
+
+        Slider ambientSlider = new Slider(ThermoConstants.MIN_TEMP_C, ThermoConstants.MAX_TEMP_C, world.ambientTemperatureC());
+        ambientSlider.setShowTickLabels(true);
+        ambientSlider.setShowTickMarks(true);
+        ambientSlider.setMajorTickUnit(2000);
+        ambientSlider.setMinorTickCount(9);
+        ambientSlider.setStyle(sliderStyle);
+        ambientSlider.setMaxWidth(Double.MAX_VALUE);
+
+        Label ambientLabel = new Label();
+        ambientLabel.setStyle(labelStyle);
+        Runnable refreshAmbientLabel = () -> ambientLabel.setText(String.format(Locale.US, "Ambient: %.0f C", world.ambientTemperatureC()));
+        refreshAmbientLabel.run();
+
+        ambientSlider.valueProperty().addListener((obs, oldV, newV) -> {
+            world.setAmbientTemperatureC(newV.floatValue());
+            refreshAmbientLabel.run();
+        });
+
+        CheckBox showTempCb = new CheckBox("Show temperature heatmap");
+        showTempCb.setStyle(labelStyle);
+        showTempCb.selectedProperty().addListener((obs, oldV, newV) -> showTemperature = newV);
+
         ToggleButton playPause = new ToggleButton("Play");
         playPause.setMaxWidth(Double.MAX_VALUE);
+        playPause.setStyle(buttonBase + " -fx-background-color: linear-gradient(to right, #2dd4bf, #22c55e);");
         playPause.selectedProperty().addListener((obs, wasSelected, isSelected) -> {
             paused = !isSelected;
             playPause.setText(isSelected ? "Pause" : "Play");
         });
-        // initial state: paused=false => selected=true
         playPause.setSelected(true);
         playPause.setText("Pause");
 
         Button stepBtn = new Button("Step (1 tick)");
         stepBtn.setMaxWidth(Double.MAX_VALUE);
+        stepBtn.setStyle(buttonBase + " -fx-background-color: linear-gradient(to right, #60a5fa, #38bdf8);");
         stepBtn.setOnAction(e -> {
             world.step();
             renderNow();
@@ -128,58 +259,96 @@ public final class ParticuleToyApp extends Application {
 
         Button clearBtn = new Button("Clear");
         clearBtn.setMaxWidth(Double.MAX_VALUE);
+        clearBtn.setStyle(buttonBase + " -fx-background-color: linear-gradient(to right, #f59e0b, #f97316);");
         clearBtn.setOnAction(e -> {
             world.clear();
-            world.fillBorder(ElementType.WALL);
+            world.fillBorder(ElementType.BEDROCK);
             renderNow();
         });
 
         Button resetBtn = new Button("Reset (new seed)");
         resetBtn.setMaxWidth(Double.MAX_VALUE);
+        resetBtn.setStyle(buttonBase + " -fx-background-color: linear-gradient(to right, #f472b6, #fb7185);");
         resetBtn.setOnAction(e -> {
             world.reseed(System.nanoTime());
             world.clear();
-            world.fillBorder(ElementType.WALL);
+            world.fillBorder(ElementType.BEDROCK);
             renderNow();
         });
 
+        Label actionsHeader = new Label("Controls");
+        actionsHeader.setStyle(headerBase + " -fx-text-fill: #a7f3d0;");
+
         Label help = new Label(
                 "Mouse:\n" +
-                "- Left: paint selected\n" +
-                "- Right: erase (EMPTY)\n" +
+                "- Left: paint selected or temperature\n" +
+                "- Right: erase (Material) or reset to ambient (Temp)\n" +
+                "\n" +
+                "Modes:\n" +
+                "- Material: paints WALL / SAND / WATER\n" +
+                "- Temperature: sets cell temperature\n" +
                 "\n" +
                 "Tips:\n" +
-                "- Keep border walls for containment\n" +
-                "- Increase brush for faster painting"
+                "- Keep border bedrock for containment\n" +
+                "- Toggle heatmap to inspect temperature"
         );
-        help.setStyle("-fx-font-size: 11px;");
+        help.setStyle(minorLabelStyle);
+        help.setWrapText(true);
 
         Label stats = new Label();
-        stats.setStyle("-fx-font-family: 'Consolas'; -fx-font-size: 11px;");
+        stats.setStyle("-fx-font-family: 'Consolas'; -fx-font-size: 11px; -fx-text-fill: #9fb4c7;");
 
-        VBox controls = new VBox(10,
-                title,
-                new Label("Element:"), elementChoice,
+        Label statsHeader = new Label("Stats");
+        statsHeader.setStyle(headerBase + " -fx-text-fill: #7ee787;");
+
+        Label helpHeader = new Label("Help");
+        helpHeader.setStyle(headerBase + " -fx-text-fill: #facc15;");
+
+        VBox modeCard = new VBox(6, modeHeader, modeRow);
+        modeCard.setStyle(cardStyle);
+
+        VBox elementCard = new VBox(6, elementHeader, elementChoice);
+        elementCard.setStyle(cardStyle);
+
+        VBox brushCard = new VBox(6, brushHeader, brushLabel, brushSlider);
+        brushCard.setStyle(cardStyle);
+
+        VBox tempCard = new VBox(6,
+                tempHeader,
+                tempBrushLabel,
+                tempBrushSlider,
                 new Separator(),
-                brushLabel, brushSlider,
-                new Separator(),
-                playPause, stepBtn, clearBtn, resetBtn,
-                new Separator(),
-                stats,
-                new Separator(),
-                help
+                ambientLabel,
+                ambientSlider,
+                showTempCb
         );
-        controls.setPadding(new Insets(10));
-        controls.setPrefWidth(260);
+        tempCard.setStyle(cardStyle);
+
+        VBox actionCard = new VBox(8, actionsHeader, playPause, stepBtn, clearBtn, resetBtn);
+        actionCard.setStyle(cardStyle);
+
+        VBox statsCard = new VBox(6, statsHeader, stats);
+        statsCard.setStyle(cardStyle);
+
+        VBox helpCard = new VBox(6, helpHeader, help);
+        helpCard.setStyle(cardStyle);
+
+        VBox controls = new VBox(12, accentBar, title, modeCard, elementCard, brushCard, tempCard, actionCard, statsCard, helpCard);
+        controls.setPadding(new Insets(12));
+        controls.setPrefWidth(320);
+        controls.setFillWidth(true);
+        controls.setStyle(panelStyle);
 
         BorderPane root = new BorderPane();
         root.setCenter(viewport);
         root.setRight(controls);
+        root.setStyle("-fx-background-color: #0b0f17;");
 
         Scene scene = new Scene(root);
         stage.setTitle("ParticuleToy");
         stage.setScene(scene);
         stage.setResizable(true);
+        stage.setMaximized(true);
         stage.show();
 
         // --- Input (painting) ---
@@ -200,7 +369,6 @@ public final class ParticuleToyApp extends Application {
                 double frameDt = (now - lastFrameNs) / 1_000_000_000.0;
                 lastFrameNs = now;
 
-                // Avoid "spiral of death" on big hiccups
                 if (frameDt > 0.25) frameDt = 0.25;
 
                 int stepsThisFrame = 0;
@@ -216,17 +384,16 @@ public final class ParticuleToyApp extends Application {
 
                 renderNow();
 
-                // FPS stats
                 fpsFrames++;
-                if (now - fpsLastNs >= 500_000_000L) { // 0.5s
+                if (now - fpsLastNs >= 500_000_000L) {
                     double seconds = (now - fpsLastNs) / 1_000_000_000.0;
                     lastFps = fpsFrames / seconds;
                     fpsFrames = 0;
                     fpsLastNs = now;
 
                     stats.setText(String.format(Locale.US,
-                            "FPS: %.1f%nTick steps/frame: %d%nWorld: %dx%d",
-                            lastFps, lastSteps, WORLD_W, WORLD_H));
+                            "FPS: %.1f%nTick steps/frame: %d%nWorld: %dx%d%nAmbient: %.0f C",
+                            lastFps, lastSteps, WORLD_W, WORLD_H, world.ambientTemperatureC()));
                 }
             }
         };
@@ -234,31 +401,35 @@ public final class ParticuleToyApp extends Application {
     }
 
     private void onPaintEvent(MouseEvent e) {
-        // Convert mouse position to world pixel coordinate
         Point2D local = imageView.sceneToLocal(e.getSceneX(), e.getSceneY());
         int x = (int) Math.floor(local.getX());
         int y = (int) Math.floor(local.getY());
 
         if (!world.inBounds(x, y)) return;
 
-        // We keep the border as an immutable containment wall in the MVP.
         if (x <= 0 || x >= world.width() - 1 || y <= 0 || y >= world.height() - 1) return;
 
-        ElementType typeToPaint;
-        if (e.getButton() == MouseButton.SECONDARY || e.isSecondaryButtonDown()) {
-            typeToPaint = ElementType.EMPTY;
+        boolean right = (e.getButton() == MouseButton.SECONDARY) || e.isSecondaryButtonDown();
+
+        if (paintMode == PaintMode.MATERIAL) {
+            ElementType typeToPaint = right ? ElementType.EMPTY : selectedElement;
+            world.paintCircle(x, y, brushRadius, typeToPaint);
         } else {
-            typeToPaint = selectedElement;
+            float t = right ? world.ambientTemperatureC() : temperatureBrushC;
+            world.paintTemperatureCircle(x, y, brushRadius, t);
         }
 
-        world.paintCircle(x, y, brushRadius, typeToPaint);
-        world.fillBorder(ElementType.WALL);
+        world.fillBorder(ElementType.BEDROCK);
         renderNow();
         e.consume();
     }
 
     private void renderNow() {
-        world.renderTo(pixels);
+        if (showTemperature) {
+            world.renderTemperatureTo(pixels);
+        } else {
+            world.renderTo(pixels);
+        }
         pixelWriter.setPixels(
                 0, 0,
                 WORLD_W, WORLD_H,

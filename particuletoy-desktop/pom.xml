@@ -37,6 +37,7 @@
         <version>${javafx.maven.plugin.version}</version>
         <configuration>
           <mainClass>com.particuletoy.desktop.ParticuleToyLauncher</mainClass>
+          <executable>${java.home}/bin/java</executable>
         </configuration>
       </plugin>
     </plugins>
