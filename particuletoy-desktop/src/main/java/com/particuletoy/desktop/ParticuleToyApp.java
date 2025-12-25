@@ -15,6 +15,7 @@ import javafx.scene.control.CheckBox;
 import javafx.scene.control.ChoiceBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.RadioButton;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Separator;
 import javafx.scene.control.Slider;
 import javafx.scene.control.ToggleButton;
@@ -67,6 +68,10 @@ public final class ParticuleToyApp extends Application {
     private PaintMode paintMode = PaintMode.MATERIAL;
     private boolean showTemperature = false;
     private float temperatureBrushC = 20.0f;
+    private Label tempHoverLabel;
+    private boolean hoverInBounds = false;
+    private int hoverX = -1;
+    private int hoverY = -1;
 
     // Stats
     private long lastFrameNs = 0L;
@@ -100,8 +105,19 @@ public final class ParticuleToyApp extends Application {
         this.imageView.setScaleX(VIEW_SCALE);
         this.imageView.setScaleY(VIEW_SCALE);
 
-        StackPane viewport = new StackPane(imageView);
+        this.tempHoverLabel = new Label("T: -- C");
+        this.tempHoverLabel.setVisible(false);
+        this.tempHoverLabel.setStyle("-fx-background-color: rgba(11, 15, 25, 0.75);"
+                + "-fx-text-fill: #e2e8f0;"
+                + "-fx-padding: 4 8;"
+                + "-fx-background-radius: 6;"
+                + "-fx-font-family: 'Consolas';"
+                + "-fx-font-size: 12px;");
+
+        StackPane viewport = new StackPane(imageView, tempHoverLabel);
         viewport.setAlignment(Pos.CENTER);
+        StackPane.setAlignment(tempHoverLabel, Pos.TOP_RIGHT);
+        StackPane.setMargin(tempHoverLabel, new Insets(8));
         viewport.setPadding(new Insets(10));
         viewport.setStyle("-fx-background-color: linear-gradient(to bottom, #0b0f17, #151b2a);");
 
@@ -237,7 +253,16 @@ public final class ParticuleToyApp extends Application {
 
         CheckBox showTempCb = new CheckBox("Show temperature heatmap");
         showTempCb.setStyle(labelStyle);
-        showTempCb.selectedProperty().addListener((obs, oldV, newV) -> showTemperature = newV);
+        showTempCb.selectedProperty().addListener((obs, oldV, newV) -> {
+            showTemperature = newV;
+            if (!showTemperature) {
+                tempHoverLabel.setVisible(false);
+            } else if (hoverInBounds) {
+                float t = world.temperatureCAt(hoverX, hoverY);
+                tempHoverLabel.setText(String.format(Locale.US, "T: %.1f C", t));
+                tempHoverLabel.setVisible(true);
+            }
+        });
 
         ToggleButton playPause = new ToggleButton("Play");
         playPause.setMaxWidth(Double.MAX_VALUE);
@@ -337,11 +362,23 @@ public final class ParticuleToyApp extends Application {
         controls.setPadding(new Insets(12));
         controls.setPrefWidth(320);
         controls.setFillWidth(true);
-        controls.setStyle(panelStyle);
+        controls.setStyle("-fx-background-color: transparent;");
+
+        ScrollPane controlsScroll = new ScrollPane(controls);
+        controlsScroll.setFitToWidth(true);
+        controlsScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        controlsScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        controlsScroll.setPannable(false);
+        controlsScroll.setStyle("-fx-background-color: transparent; -fx-background: transparent;");
+        controlsScroll.setPrefWidth(320);
+
+        StackPane controlsPane = new StackPane(controlsScroll);
+        controlsPane.setStyle(panelStyle);
+        controlsPane.setPrefWidth(320);
 
         BorderPane root = new BorderPane();
         root.setCenter(viewport);
-        root.setRight(controls);
+        root.setRight(controlsPane);
         root.setStyle("-fx-background-color: #0b0f17;");
 
         Scene scene = new Scene(root);
@@ -354,6 +391,11 @@ public final class ParticuleToyApp extends Application {
         // --- Input (painting) ---
         imageView.addEventFilter(MouseEvent.MOUSE_PRESSED, this::onPaintEvent);
         imageView.addEventFilter(MouseEvent.MOUSE_DRAGGED, this::onPaintEvent);
+        imageView.addEventFilter(MouseEvent.MOUSE_MOVED, this::onHoverEvent);
+        imageView.addEventFilter(MouseEvent.MOUSE_EXITED, e -> {
+            hoverInBounds = false;
+            tempHoverLabel.setVisible(false);
+        });
 
         // --- Game loop ---
         AnimationTimer timer = new AnimationTimer() {
@@ -412,8 +454,11 @@ public final class ParticuleToyApp extends Application {
         boolean right = (e.getButton() == MouseButton.SECONDARY) || e.isSecondaryButtonDown();
 
         if (paintMode == PaintMode.MATERIAL) {
-            ElementType typeToPaint = right ? ElementType.EMPTY : selectedElement;
-            world.paintCircle(x, y, brushRadius, typeToPaint);
+            if (right) {
+                world.paintCircle(x, y, brushRadius, ElementType.EMPTY);
+            } else {
+                world.paintCircleWithTemperature(x, y, brushRadius, selectedElement, temperatureBrushC);
+            }
         } else {
             float t = right ? world.ambientTemperatureC() : temperatureBrushC;
             world.paintTemperatureCircle(x, y, brushRadius, t);
@@ -422,6 +467,29 @@ public final class ParticuleToyApp extends Application {
         world.fillBorder(ElementType.BEDROCK);
         renderNow();
         e.consume();
+    }
+
+    private void onHoverEvent(MouseEvent e) {
+        if (!showTemperature) {
+            tempHoverLabel.setVisible(false);
+            return;
+        }
+        Point2D local = imageView.sceneToLocal(e.getSceneX(), e.getSceneY());
+        int x = (int) Math.floor(local.getX());
+        int y = (int) Math.floor(local.getY());
+
+        if (!world.inBounds(x, y)) {
+            hoverInBounds = false;
+            tempHoverLabel.setVisible(false);
+            return;
+        }
+
+        hoverInBounds = true;
+        hoverX = x;
+        hoverY = y;
+        float t = world.temperatureCAt(x, y);
+        tempHoverLabel.setText(String.format(Locale.US, "T: %.1f C", t));
+        tempHoverLabel.setVisible(true);
     }
 
     private void renderNow() {

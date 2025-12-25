@@ -166,33 +166,7 @@ public final class World {
      * Painting an element also sets its temperature to the ambient temperature.
      */
     public void paintCircle(int cx, int cy, int radius, ElementType type) {
-        Objects.requireNonNull(type, "type");
-        if (radius < 0) return;
-
-        int r = radius;
-        int r2 = r * r;
-
-        int minX = MathUtil.clamp(cx - r, 0, width - 1);
-        int maxX = MathUtil.clamp(cx + r, 0, width - 1);
-        int minY = MathUtil.clamp(cy - r, 0, height - 1);
-        int maxY = MathUtil.clamp(cy + r, 0, height - 1);
-
-        byte id = type.id();
-        float e = Thermo.energyForTemperature(type, ambientTempC);
-
-        for (int y = minY; y <= maxY; y++) {
-            int dy = y - cy;
-            int dy2 = dy * dy;
-            int rowBase = y * width;
-            for (int x = minX; x <= maxX; x++) {
-                int dx = x - cx;
-                if (dx * dx + dy2 <= r2) {
-                    int idx = rowBase + x;
-                    cells[idx] = id;
-                    energyJ[idx] = e;
-                }
-            }
-        }
+        paintCircleWithTemperature(cx, cy, radius, type, ambientTempC);
     }
 
     /**
@@ -217,6 +191,40 @@ public final class World {
                 int dx = x - cx;
                 if (dx * dx + dy2 <= r2) {
                     setTemperatureC(x, y, tempC);
+                }
+            }
+        }
+    }
+
+    /**
+     * Paint a filled circle and initialize it at a specific temperature.
+     */
+    public void paintCircleWithTemperature(int cx, int cy, int radius, ElementType type, float tempC) {
+        Objects.requireNonNull(type, "type");
+        if (radius < 0) return;
+
+        int r = radius;
+        int r2 = r * r;
+
+        int minX = MathUtil.clamp(cx - r, 0, width - 1);
+        int maxX = MathUtil.clamp(cx + r, 0, width - 1);
+        int minY = MathUtil.clamp(cy - r, 0, height - 1);
+        int maxY = MathUtil.clamp(cy + r, 0, height - 1);
+
+        float e = Thermo.energyForTemperature(type, tempC);
+        ElementType updated = Thermo.updatePhase(type, e);
+        byte id = updated.id();
+
+        for (int y = minY; y <= maxY; y++) {
+            int dy = y - cy;
+            int dy2 = dy * dy;
+            int rowBase = y * width;
+            for (int x = minX; x <= maxX; x++) {
+                int dx = x - cx;
+                if (dx * dx + dy2 <= r2) {
+                    int idx = rowBase + x;
+                    cells[idx] = id;
+                    energyJ[idx] = e;
                 }
             }
         }
