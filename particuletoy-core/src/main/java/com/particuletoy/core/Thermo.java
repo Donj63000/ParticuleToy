@@ -8,8 +8,8 @@ package com.particuletoy.core;
  * latent heat plateaus for melting and boiling.
  *
  * Important simplifications (intentional for a cellular sandbox):
- * - No pressure model (phase boundaries are fixed).
- * - No mass/volume expansion when vaporizing (a cell stays one cell).
+ * - Pressure is a local approximation (hydrostatic + ideal gas).
+ * - Condensed phases use a fixed per-cell mass; gases can vary by mass.
  * - Specific heat and conductivity are treated as constants per phase.
  */
 public final class Thermo {
@@ -23,8 +23,13 @@ public final class Thermo {
     // Water (values are typical at 1 atm)
     private static final float WATER_MELT_C = 0.0f;
     private static final float WATER_BOIL_C = 100.0f;
-    private static final float WATER_LATENT_FUSION_JKG = 333_550f;
-    private static final float WATER_LATENT_VAPOR_JKG = 2_256_000f;
+    public static final float WATER_LATENT_FUSION_JKG = 333_550f;
+    public static final float WATER_LATENT_VAPOR_JKG = 2_256_000f;
+
+    private static final float WATER_BOIL_REF_C = 100.0f;
+    private static final float WATER_BOIL_REF_K = 273.15f + WATER_BOIL_REF_C;
+    private static final float WATER_PRESSURE_REF_PA = 101_325.0f;
+    private static final float R_WATER_VAPOR = 461.52f;
 
     // Sand / silica (game approximation)
     private static final float SAND_MELT_C = 1550.0f;
@@ -40,6 +45,39 @@ public final class Thermo {
 
     public static float clampTempC(float tempC) {
         return MathUtil.clamp(tempC, ThermoConstants.MIN_TEMP_C, ThermoConstants.MAX_TEMP_C);
+    }
+
+    public static float waterBoilingPointC(float pressurePa) {
+        float p = Math.max(1.0f, pressurePa);
+
+        // 1/T = 1/T0 - (R/Lv) ln(P/P0)
+        float invT = (1.0f / WATER_BOIL_REF_K)
+                - (R_WATER_VAPOR / WATER_LATENT_VAPOR_JKG) * (float) Math.log(p / WATER_PRESSURE_REF_PA);
+
+        if (invT <= 0.0f) {
+            return ThermoConstants.MAX_TEMP_C;
+        }
+        float tbK = 1.0f / invT;
+        return clampTempC(tbK - 273.15f);
+    }
+
+    public static float idealGasMassKg(ElementType gasType, float pressurePa, float tempC) {
+        if (gasType.phase() != Phase.GAS) return 0f;
+        float r = gasType.gasConstantJkgK();
+        if (r <= 0f) return 0f;
+
+        float tk = Math.max(1f, tempC + 273.15f);
+        float p = Math.max(1f, pressurePa);
+        return (p * ThermoConstants.CELL_VOLUME_M3) / (r * tk);
+    }
+
+    public static float idealGasPressurePa(ElementType gasType, float massKg, float tempC) {
+        if (gasType.phase() != Phase.GAS) return 0f;
+        float r = gasType.gasConstantJkgK();
+        if (r <= 0f || massKg <= 0f) return 0f;
+
+        float tk = Math.max(1f, tempC + 273.15f);
+        return (massKg * r * tk) / ThermoConstants.CELL_VOLUME_M3;
     }
 
     /**
@@ -67,22 +105,26 @@ public final class Thermo {
 
     /**
      * Convert temperature to energy for the current element.
-     *
-     * If temp is exactly at a phase boundary, we bias energy to match the current phase:
-     * - at melting point: SOLID uses start of melt plateau, LIQUID/GAS uses end of plateau
-     * - at boiling point: LIQUID/SOLID uses start of boil plateau, GAS uses end of plateau
      */
     public static float energyForTemperature(ElementType currentType, float tempC) {
+        float massKg = massKgPerCell(currentType.family());
+        return energyForTemperature(currentType, tempC, massKg, ThermoConstants.DEFAULT_AMBIENT_PRESSURE_PA);
+    }
+
+    /**
+     * Convert temperature to energy for the current element using mass and pressure.
+     */
+    public static float energyForTemperature(ElementType currentType, float tempC, float massKg, float pressurePa) {
         tempC = clampTempC(tempC);
+        if (massKg <= 0f) return 0f;
+
         MaterialFamily family = currentType.family();
 
         if (family == MaterialFamily.AIR) {
-            float m = massKgPerCell(MaterialFamily.AIR);
-            float cp = ElementType.EMPTY.specificHeatJKgK();
-            return m * cp * tempC;
+            return massKg * ElementType.EMPTY.specificHeatJKgK() * tempC;
         }
 
-        float m = massKgPerCell(family);
+        float m = massKg;
 
         ElementType solid = solidType(family);
         ElementType liquid = liquidType(family);
@@ -93,7 +135,8 @@ public final class Thermo {
         float cpGas = gas.specificHeatJKgK();
 
         float tm = meltPointC(family);
-        float tb = boilPointC(family);
+        float tb = (family == MaterialFamily.WATER) ? waterBoilingPointC(pressurePa) : boilPointC(family);
+
         float lf = latentFusionJkg(family);
         float lv = latentVaporJkg(family);
 
@@ -105,35 +148,35 @@ public final class Thermo {
         if (tempC < tm) {
             return m * cpSolid * tempC;
         }
-        if (tempC > tb) {
-            return eAfterBoil + m * cpGas * (tempC - tb);
-        }
-        if (tempC > tm && tempC < tb) {
+        if (tempC < tb) {
             return eAfterMelt + m * cpLiquid * (tempC - tm);
         }
-
-        if (tempC == tm) {
-            if (currentType.phase() == Phase.SOLID) return eSolidAtMelt;
-            return eAfterMelt;
-        }
-        if (currentType.phase() == Phase.GAS) return eAfterBoil;
-        return eLiquidAtBoil;
+        return eAfterBoil + m * cpGas * (tempC - tb);
     }
 
     /**
-     * Convert energy to temperature for a given element (phase bias only matters on plateaus).
+     * Convert energy to temperature for a given element.
      */
     public static float temperatureC(ElementType currentType, float energyJ) {
+        float massKg = massKgPerCell(currentType.family());
+        return temperatureC(currentType, energyJ, massKg, ThermoConstants.DEFAULT_AMBIENT_PRESSURE_PA);
+    }
+
+    /**
+     * Convert energy to temperature for a given element using mass and pressure.
+     */
+    public static float temperatureC(ElementType currentType, float energyJ, float massKg, float pressurePa) {
+        if (massKg <= 0f) return ThermoConstants.DEFAULT_AMBIENT_TEMP_C;
+
         MaterialFamily family = currentType.family();
 
         if (family == MaterialFamily.AIR) {
-            float m = massKgPerCell(MaterialFamily.AIR);
-            float cp = ElementType.EMPTY.specificHeatJKgK();
-            if (m * cp == 0f) return 0f;
-            return clampTempC(energyJ / (m * cp));
+            float denom = massKg * ElementType.EMPTY.specificHeatJKgK();
+            if (denom == 0f) return 0f;
+            return clampTempC(energyJ / denom);
         }
 
-        float m = massKgPerCell(family);
+        float m = massKg;
 
         ElementType solid = solidType(family);
         ElementType liquid = liquidType(family);
@@ -144,7 +187,8 @@ public final class Thermo {
         float cpGas = gas.specificHeatJKgK();
 
         float tm = meltPointC(family);
-        float tb = boilPointC(family);
+        float tb = (family == MaterialFamily.WATER) ? waterBoilingPointC(pressurePa) : boilPointC(family);
+
         float lf = latentFusionJkg(family);
         float lv = latentVaporJkg(family);
 
@@ -177,18 +221,23 @@ public final class Thermo {
 
     /**
      * Update element phase according to family thresholds and current energy.
-     *
-     * Plateau behavior:
-     * - In melting plateau: SOLID stays SOLID until end, LIQUID stays LIQUID until start
-     * - In boiling plateau: LIQUID stays LIQUID until end, GAS stays GAS until start
      */
     public static ElementType updatePhase(ElementType currentType, float energyJ) {
+        float massKg = massKgPerCell(currentType.family());
+        return updatePhase(currentType, energyJ, massKg, ThermoConstants.DEFAULT_AMBIENT_PRESSURE_PA);
+    }
+
+    /**
+     * Update element phase according to family thresholds and current energy (with pressure).
+     */
+    public static ElementType updatePhase(ElementType currentType, float energyJ, float massKg, float pressurePa) {
         if (currentType.phaseLocked()) return currentType;
+        if (massKg <= 0f) return ElementType.EMPTY;
 
         MaterialFamily family = currentType.family();
-        if (family == MaterialFamily.AIR) return currentType;
+        if (family == MaterialFamily.AIR) return ElementType.EMPTY;
 
-        float m = massKgPerCell(family);
+        float m = massKg;
 
         ElementType solid = solidType(family);
         ElementType liquid = liquidType(family);
@@ -198,7 +247,8 @@ public final class Thermo {
         float cpLiquid = liquid.specificHeatJKgK();
 
         float tm = meltPointC(family);
-        float tb = boilPointC(family);
+        float tb = (family == MaterialFamily.WATER) ? waterBoilingPointC(pressurePa) : boilPointC(family);
+
         float lf = latentFusionJkg(family);
         float lv = latentVaporJkg(family);
 
@@ -207,19 +257,17 @@ public final class Thermo {
         float eLiquidAtBoil = eAfterMelt + m * cpLiquid * (tb - tm);
         float eAfterBoil = eLiquidAtBoil + m * lv;
 
-        if (energyJ <= eSolidAtMelt) return solid;
-        if (energyJ >= eAfterBoil) return gas;
-        if (energyJ >= eAfterMelt && energyJ <= eLiquidAtBoil) return liquid;
-
-        if (energyJ < eAfterMelt) {
-            if (currentType == solid || currentType == liquid) return currentType;
-            float mid = (eSolidAtMelt + eAfterMelt) * 0.5f;
-            return (energyJ < mid) ? solid : liquid;
+        if (family == MaterialFamily.WATER) {
+            if (energyJ < eSolidAtMelt) return ElementType.ICE;
+            if (energyJ < eAfterMelt) return ElementType.SLUSH;
+            if (energyJ < eLiquidAtBoil) return ElementType.WATER;
+            if (energyJ < eAfterBoil) return ElementType.BOILING_WATER;
+            return ElementType.STEAM;
         }
 
-        if (currentType == liquid || currentType == gas) return currentType;
-        float mid = (eLiquidAtBoil + eAfterBoil) * 0.5f;
-        return (energyJ < mid) ? liquid : gas;
+        if (energyJ <= eSolidAtMelt) return solid;
+        if (energyJ >= eAfterBoil) return gas;
+        return liquid;
     }
 
     // -----------------------------
