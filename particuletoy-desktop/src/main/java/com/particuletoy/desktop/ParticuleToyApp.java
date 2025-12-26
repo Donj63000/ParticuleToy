@@ -81,6 +81,9 @@ public final class ParticuleToyApp extends Application {
     private double lastFps = 0.0;
     private int lastSteps = 0;
 
+    private static int debugPaintSeq = 0;
+    private static boolean debugPaint = false;
+
     private enum PaintMode {
         MATERIAL,
         TEMPERATURE
@@ -413,10 +416,10 @@ public final class ParticuleToyApp extends Application {
 
         // --- Input (painting) ---
         viewport.setPickOnBounds(true);
-        viewport.addEventFilter(MouseEvent.MOUSE_PRESSED, this::onPaintEvent);
-        viewport.addEventFilter(MouseEvent.MOUSE_DRAGGED, this::onPaintEvent);
-        viewport.addEventFilter(MouseEvent.MOUSE_MOVED, this::onHoverEvent);
-        viewport.addEventFilter(MouseEvent.MOUSE_EXITED, e -> {
+        viewport.setOnMousePressed(this::onPaintEvent);
+        viewport.setOnMouseDragged(this::onPaintEvent);
+        viewport.setOnMouseMoved(this::onHoverEvent);
+        viewport.setOnMouseExited(e -> {
             hoverInBounds = false;
             tempHoverLabel.setVisible(false);
         });
@@ -477,6 +480,8 @@ public final class ParticuleToyApp extends Application {
         int x = (int) Math.floor(local.getX());
         int y = (int) Math.floor(local.getY());
 
+        debugPaintLog("onPaintEvent", e, x, y);
+
         if (!world.inBounds(x, y)) return;
 
         if (x <= 0 || x >= world.width() - 1 || y <= 0 || y >= world.height() - 1) return;
@@ -497,6 +502,32 @@ public final class ParticuleToyApp extends Application {
         world.fillBorder(ElementType.BEDROCK);
         renderNow();
         e.consume();
+    }
+
+    private void debugPaintLog(String tag, MouseEvent e, int gx, int gy) {
+        if (!debugPaint) return;
+
+        int seq = ++debugPaintSeq;
+        System.out.printf(
+                "[PAINT #%d] %s type=%s source=%s target=%s button=%s primDown=%s secDown=%s "
+                        + "scene=(%.1f,%.1f) local=(%.1f,%.1f) grid=(%d,%d)%n",
+                seq,
+                tag,
+                e.getEventType(),
+                (e.getSource() == null ? "null" : e.getSource().getClass().getSimpleName()),
+                (e.getTarget() == null ? "null" : e.getTarget().getClass().getSimpleName()),
+                e.getButton(),
+                e.isPrimaryButtonDown(),
+                e.isSecondaryButtonDown(),
+                e.getSceneX(), e.getSceneY(),
+                e.getX(), e.getY(),
+                gx, gy
+        );
+
+        StackTraceElement[] st = Thread.currentThread().getStackTrace();
+        for (int i = 2; i < Math.min(st.length, 12); i++) {
+            System.out.println("    at " + st[i]);
+        }
     }
 
     private void onHoverEvent(MouseEvent e) {
