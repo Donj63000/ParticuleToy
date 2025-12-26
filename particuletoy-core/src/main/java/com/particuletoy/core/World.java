@@ -46,6 +46,9 @@ public final class World {
     private static final float BOIL_VENT_RATE = 0.05f;
     private static final float MIN_LIQUID_MASS_FRACTION = 0.02f;
 
+    private static boolean debugPaint = true;
+    private static int debugPaintSeq = 0;
+
     private final int width;
     private final int height;
 
@@ -220,6 +223,8 @@ public final class World {
     public void paintTemperatureCircle(int cx, int cy, int radius, float tempC) {
         if (radius < 0) return;
 
+        debugPaintLog("paintTemperatureCircle", cx, cy, radius, null, tempC);
+
         int r = radius;
         int r2 = r * r;
 
@@ -247,6 +252,8 @@ public final class World {
     public void paintCircleWithTemperature(int cx, int cy, int radius, ElementType type, float tempC) {
         Objects.requireNonNull(type, "type");
         if (radius < 0) return;
+
+        debugPaintLog("paintCircleWithTemperature", cx, cy, radius, type, tempC);
 
         int r = radius;
         int r2 = r * r;
@@ -976,6 +983,26 @@ public final class World {
         int bo = (int) (b0 + (b1 - b0) * a);
 
         return (ao << 24) | (ro << 16) | (go << 8) | bo;
+    }
+
+    private static void debugPaintLog(String tag, int cx, int cy, int radius, ElementType type, float tempC) {
+        if (!debugPaint) return;
+
+        int seq = ++debugPaintSeq;
+        String line = String.format(
+                "[WORLD PAINT #%d] %s center=(%d,%d) r=%d type=%s temp=%.1f",
+                seq,
+                tag,
+                cx, cy, radius,
+                (type == null ? "null" : type.name()),
+                tempC
+        );
+        DebugLog.log(line);
+
+        StackTraceElement[] st = Thread.currentThread().getStackTrace();
+        for (int i = 2; i < Math.min(st.length, 12); i++) {
+            DebugLog.log("    at " + st[i]);
+        }
     }
 
     // --- Temperature visualization ---

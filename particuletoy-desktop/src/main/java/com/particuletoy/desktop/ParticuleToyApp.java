@@ -1,5 +1,6 @@
 package com.particuletoy.desktop;
 
+import com.particuletoy.core.DebugLog;
 import com.particuletoy.core.ElementType;
 import com.particuletoy.core.ThermoConstants;
 import com.particuletoy.core.World;
@@ -82,7 +83,7 @@ public final class ParticuleToyApp extends Application {
     private int lastSteps = 0;
 
     private static int debugPaintSeq = 0;
-    private static boolean debugPaint = false;
+    private static boolean debugPaint = true;
 
     private enum PaintMode {
         MATERIAL,
@@ -508,9 +509,9 @@ public final class ParticuleToyApp extends Application {
         if (!debugPaint) return;
 
         int seq = ++debugPaintSeq;
-        System.out.printf(
+        String line = String.format(Locale.US,
                 "[PAINT #%d] %s type=%s source=%s target=%s button=%s primDown=%s secDown=%s "
-                        + "scene=(%.1f,%.1f) local=(%.1f,%.1f) grid=(%d,%d)%n",
+                        + "scene=(%.1f,%.1f) local=(%.1f,%.1f) grid=(%d,%d)",
                 seq,
                 tag,
                 e.getEventType(),
@@ -523,10 +524,11 @@ public final class ParticuleToyApp extends Application {
                 e.getX(), e.getY(),
                 gx, gy
         );
+        DebugLog.log(line);
 
         StackTraceElement[] st = Thread.currentThread().getStackTrace();
         for (int i = 2; i < Math.min(st.length, 12); i++) {
-            System.out.println("    at " + st[i]);
+            DebugLog.log("    at " + st[i]);
         }
     }
 

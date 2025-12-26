@@ -16,6 +16,7 @@ Objectif MVP 🎯
 
 - JDK 17 (projet compilé en `--release 17`)
 - Maven 3.9+ recommandé
+- Maven uses `JAVA_HOME` to pick the JDK (ensure it points to JDK 17+).
 
 Note JavaFX ⚠️
 Le projet utilise une version JavaFX compatible JDK 17+. Si vous changez la version JavaFX, vérifiez la compatibilité minimale JDK avant de mettre à jour.
@@ -27,8 +28,14 @@ Depuis la racine :
 - Tests core :
   `mvn -pl particuletoy-core test`
 
+- Build core (if you changed core classes) :
+  `mvn -pl particuletoy-core install`
+
 - Lancer l'app JavaFX :
   `mvn -pl particuletoy-desktop javafx:run`
+
+Astuce : from root, to build core + run in one command, use :
+  `mvn -pl particuletoy-desktop -am org.openjfx:javafx-maven-plugin:run`
 
 Maven télécharge automatiquement les modules JavaFX (dont les libs natives) si les dépendances sont bien déclarées.
 
