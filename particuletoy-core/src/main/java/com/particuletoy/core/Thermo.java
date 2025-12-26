@@ -257,17 +257,30 @@ public final class Thermo {
         float eLiquidAtBoil = eAfterMelt + m * cpLiquid * (tb - tm);
         float eAfterBoil = eLiquidAtBoil + m * lv;
 
+        ElementType updated;
         if (family == MaterialFamily.WATER) {
-            if (energyJ < eSolidAtMelt) return ElementType.ICE;
-            if (energyJ < eAfterMelt) return ElementType.SLUSH;
-            if (energyJ < eLiquidAtBoil) return ElementType.WATER;
-            if (energyJ < eAfterBoil) return ElementType.BOILING_WATER;
-            return ElementType.STEAM;
+            if (energyJ < eSolidAtMelt) updated = ElementType.ICE;
+            else if (energyJ < eAfterMelt) updated = ElementType.SLUSH;
+            else if (energyJ < eLiquidAtBoil) updated = ElementType.WATER;
+            else if (energyJ < eAfterBoil) updated = ElementType.BOILING_WATER;
+            else updated = ElementType.STEAM;
+        } else if (energyJ <= eSolidAtMelt) {
+            updated = solid;
+        } else if (energyJ >= eAfterBoil) {
+            updated = gas;
+        } else {
+            updated = liquid;
         }
 
-        if (energyJ <= eSolidAtMelt) return solid;
-        if (energyJ >= eAfterBoil) return gas;
-        return liquid;
+        if (currentType.phase() == Phase.GAS && updated.phase() != Phase.GAS) {
+            float fullMass = massKgPerCell(family);
+            float minCondense = fullMass * ThermoConstants.MIN_CONDENSE_MASS_FRACTION;
+            if (m < minCondense) {
+                return currentType;
+            }
+        }
+
+        return updated;
     }
 
     // -----------------------------

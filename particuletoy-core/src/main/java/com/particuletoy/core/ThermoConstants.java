@@ -40,6 +40,12 @@ public final class ThermoConstants {
     public static final float RADIATION_VISIBLE_START_C = 700.0f;
 
     /**
+     * Minimum mass fraction (relative to a full condensed cell) required for gas
+     * to condense into liquid/solid. Prevents tiny vapor from spawning many solids.
+     */
+    public static final float MIN_CONDENSE_MASS_FRACTION = 0.01f;
+
+    /**
      * Radiation tuning. 1.0 is physically "raw" magnitude for the chosen cell size,
      * but in a game you often tune this.
      */
