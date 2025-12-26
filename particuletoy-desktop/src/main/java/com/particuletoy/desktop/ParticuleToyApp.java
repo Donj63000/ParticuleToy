@@ -113,6 +113,7 @@ public final class ParticuleToyApp extends Application {
                 + "-fx-background-radius: 6;"
                 + "-fx-font-family: 'Consolas';"
                 + "-fx-font-size: 12px;");
+        this.tempHoverLabel.setMouseTransparent(true);
 
         StackPane viewport = new StackPane(imageView, tempHoverLabel);
         viewport.setAlignment(Pos.CENTER);
@@ -411,10 +412,11 @@ public final class ParticuleToyApp extends Application {
         stage.show();
 
         // --- Input (painting) ---
-        imageView.addEventFilter(MouseEvent.MOUSE_PRESSED, this::onPaintEvent);
-        imageView.addEventFilter(MouseEvent.MOUSE_DRAGGED, this::onPaintEvent);
-        imageView.addEventFilter(MouseEvent.MOUSE_MOVED, this::onHoverEvent);
-        imageView.addEventFilter(MouseEvent.MOUSE_EXITED, e -> {
+        viewport.setPickOnBounds(true);
+        viewport.addEventFilter(MouseEvent.MOUSE_PRESSED, this::onPaintEvent);
+        viewport.addEventFilter(MouseEvent.MOUSE_DRAGGED, this::onPaintEvent);
+        viewport.addEventFilter(MouseEvent.MOUSE_MOVED, this::onHoverEvent);
+        viewport.addEventFilter(MouseEvent.MOUSE_EXITED, e -> {
             hoverInBounds = false;
             tempHoverLabel.setVisible(false);
         });
@@ -465,6 +467,12 @@ public final class ParticuleToyApp extends Application {
     }
 
     private void onPaintEvent(MouseEvent e) {
+        boolean primaryDown = e.isPrimaryButtonDown() || e.getButton() == MouseButton.PRIMARY;
+        boolean secondaryDown = e.isSecondaryButtonDown() || e.getButton() == MouseButton.SECONDARY;
+        if (!primaryDown && !secondaryDown) {
+            return;
+        }
+
         Point2D local = imageView.sceneToLocal(e.getSceneX(), e.getSceneY());
         int x = (int) Math.floor(local.getX());
         int y = (int) Math.floor(local.getY());
@@ -473,7 +481,7 @@ public final class ParticuleToyApp extends Application {
 
         if (x <= 0 || x >= world.width() - 1 || y <= 0 || y >= world.height() - 1) return;
 
-        boolean right = (e.getButton() == MouseButton.SECONDARY) || e.isSecondaryButtonDown();
+        boolean right = secondaryDown;
 
         if (paintMode == PaintMode.MATERIAL) {
             if (right) {
