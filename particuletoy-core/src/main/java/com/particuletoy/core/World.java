@@ -67,6 +67,8 @@ public final class World {
 
     // Stamp technique to avoid double-moves within a single tick
     private final int[] movedStamp;
+    // Prevent gas pressure flow from multi-hopping within a single tick.
+    private final int[] gasFlowStamp;
     private int tickId = 1;
 
     // Determinism: seedable RNG (used only to break symmetry / choose directions)
@@ -94,6 +96,7 @@ public final class World {
         this.pressurePa = new float[cells.length];
         this.tempBufC = new float[cells.length];
         this.movedStamp = new int[cells.length];
+        this.gasFlowStamp = new int[cells.length];
         this.rng = new SplittableRandom(seed);
 
         clear();
@@ -784,6 +787,7 @@ public final class World {
         for (int y = 1; y < height - 1; y++) {
             for (int x = 1; x < width - 1; x++) {
                 int idx = index(x, y);
+                if (gasFlowStamp[idx] == tickId) continue;
                 ElementType t = ElementType.fromId(cells[idx]);
                 if (t.phase() != Phase.GAS) continue;
                 if (t == ElementType.EMPTY) continue;
@@ -866,6 +870,7 @@ public final class World {
             massKg[neighbor] += dm;
             energyJ[neighbor] += dE;
         }
+        gasFlowStamp[neighbor] = tickId;
 
         return massKg[idx];
     }

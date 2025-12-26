@@ -254,20 +254,20 @@ public final class ParticuleToyApp extends Application {
         Label pressureLabel = new Label();
         pressureLabel.setStyle(labelStyle);
         Runnable refreshPressureLabel = () -> pressureLabel.setText(
-                String.format(Locale.US, "Ambient pressure: %.1f kPa", world.ambientPressurePa() / 1000.0)
+                String.format(Locale.US, "Ambient pressure: %.2f bar", world.ambientPressurePa() / 100_000.0)
         );
         refreshPressureLabel.run();
 
-        Slider pressureSlider = new Slider(20, 300, world.ambientPressurePa() / 1000.0);
+        Slider pressureSlider = new Slider(0.2, 3.0, world.ambientPressurePa() / 100_000.0);
         pressureSlider.setShowTickLabels(true);
         pressureSlider.setShowTickMarks(true);
-        pressureSlider.setMajorTickUnit(50);
+        pressureSlider.setMajorTickUnit(0.5);
         pressureSlider.setMinorTickCount(4);
         pressureSlider.setStyle(sliderStyle);
         pressureSlider.setMaxWidth(Double.MAX_VALUE);
 
         pressureSlider.valueProperty().addListener((obs, oldV, newV) -> {
-            world.setAmbientPressurePa(newV.floatValue() * 1000.0f);
+            world.setAmbientPressurePa(newV.floatValue() * 100_000.0f);
             refreshPressureLabel.run();
         });
 
@@ -456,8 +456,8 @@ public final class ParticuleToyApp extends Application {
                     fpsLastNs = now;
 
                     stats.setText(String.format(Locale.US,
-                            "FPS: %.1f%nTick steps/frame: %d%nWorld: %dx%d%nAmbient: %.0f C%nAmbientP: %.1f kPa",
-                            lastFps, lastSteps, WORLD_W, WORLD_H, world.ambientTemperatureC(), world.ambientPressurePa() / 1000.0));
+                            "FPS: %.1f%nTick steps/frame: %d%nWorld: %dx%d%nAmbient: %.0f C%nAmbientP: %.2f bar",
+                            lastFps, lastSteps, WORLD_W, WORLD_H, world.ambientTemperatureC(), world.ambientPressurePa() / 100_000.0));
                 }
             }
         };
